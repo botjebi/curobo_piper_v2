@@ -1,0 +1,104 @@
+robot_cfg:
+  kinematics:
+    usd_path: "/home/lab/curobo_piper/piper_usd/piper_v2.usd"
+    usd_robot_root: "/robot"
+    isaac_usd_path: ""
+    usd_flip_joints: {}
+    usd_flip_joint_limits: []
+
+    urdf_path: "/home/lab/curobo_piper/piper_description/urdf/piper_description.urdf"
+    asset_root_path: "/home/lab/curobo_piper/piper_description/meshes"
+
+    base_link: "base_link"
+    ee_link: "gripper_base"
+    link_names: null
+
+    # Keep the arm planning setup identical to the working piper.yml.
+    # joint7/joint8 are controlled in Isaac Sim, not by cuRobo cspace planning.
+    lock_joints: null
+
+    # Add only the virtual link needed for cuRobo attached-object collision handling.
+    extra_links:
+      attached_object:
+        parent_link_name: "gripper_base"
+        link_name: "attached_object"
+        fixed_transform: [0.0, 0.0, -0.145, 1.0, 0.0, 0.0, 0.0]
+        joint_type: "FIXED"
+        joint_name: "attach_joint"
+
+    # Preserve the working collision model from piper.yml as much as possible.
+    # Do NOT add link7/link8 here because that changed the reachable set and caused IK failures.
+    # Add only attached_object so cuRobo can consider the carried cube after attach.
+    collision_link_names:
+      ["base_link", "link1", "link2", "link3", "link4", "link5", "gripper_base", "attached_object"]
+
+    collision_spheres:
+      base_link:
+        - "center": [-0.005, -0.0, 0.039]
+          "radius": 0.01905
+      link1:
+        - "center": [-0.002, -0.001, 0.003]
+          "radius": 0.05372
+      link2:
+        - "center": [0.075, -0.018, -0.004]
+          "radius": 0.04497
+        - "center": [0.138, -0.03, 0.002]
+          "radius": 0.04497
+        - "center": [0.205, -0.041, 0.003]
+          "radius": 0.04497
+      link3:
+        - "center": [0.001, -0.005, 0.0]
+          "radius": 0.05628
+        - "center": [-0.026, -0.065, -0.001]
+          "radius": 0.03628
+        - "center": [-0.023, -0.12, -0.005]
+          "radius": 0.03628
+        - "center": [-0.021, -0.19, 0.001]
+          "radius": 0.04628
+      link4:
+        - "center": [-0.001, -0.001, 0.001]
+          "radius": 0.04684
+      link5:
+        - "center": [-0.002, -0.062, 0.001]
+          "radius": 0.03687
+      gripper_base:
+        - "center": [-0.003, 0.002, 0.028]
+          "radius": 0.04637
+        - "center": [0.001, 0.053, 0.048]
+          "radius": 0.02637
+        - "center": [-0.01, -0.053, 0.049]
+          "radius": 0.02637
+      link7:
+        - "center": [-0.003, -0.016, 0.024]
+          "radius": 0.02552
+      link8:
+        - "center": [0.001, -0.016, 0.025]
+          "radius": 0.02552
+
+    collision_sphere_buffer: 0.01
+    extra_collision_spheres:
+      attached_object: 16
+
+    self_collision_ignore:
+      "base link": ["base_link", "link1", "link2"]
+      "link1": ["link2"]
+      "link2": ["link3"]
+      "link3": ["link4"]
+      "link4": ["link5"]
+      "link5": ["link6", "gripper_base"]
+      "link6": ["gripper_base"]
+      "gripper_base": ["attached_object"]
+
+    self_collision_buffer: {}
+
+    use_global_cumul: True
+    mesh_link_names: null
+    external_asset_path: null
+
+    cspace:
+      joint_names: ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+      retract_config: [0.0, 0.4, -0.4, 0.0, 0.1, 0.0]
+      null_space_weight: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      cspace_distance_weight: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      max_jerk: 500.0
+      max_acceleration: 15.0

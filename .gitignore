@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs
+logs/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary / backup
+*.tmp
+*.bak
+*~
+configs/curobo_piper/piper_usd/piper.usd

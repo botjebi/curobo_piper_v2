@@ -2,7 +2,7 @@
 
 Collision-aware Piper pick-and-place simulation in **NVIDIA Isaac Sim 5.1.0** using **cuRobo**.
 
-The workspace contains the Piper robot model, aligned testbed/table asset, basket asset, cuRobo robot configuration, randomized pick-and-place task logic, collision-aware return-to-home planning, retry handling, and CSV logging.
+The workspace contains the Piper robot model, aligned testbed/table asset, basket asset, cuRobo robot configuration, randomized pick-and-place task logic, collision-aware return-to-home planning, retry handling, CSV logging, RealSense/ChArUco camera calibration utilities, and optional per-attempt scene-light randomization.
 
 The main simulation entry point resolves repository-local paths from the script location, so the repository directory can be renamed or cloned to another location without editing machine-specific paths in the Python entry point.
 
@@ -31,6 +31,10 @@ The main simulation entry point resolves repository-local paths from the script 
 - Joint-state CSV logging
 - Task-level success/failure logging
 - Main and wrist camera support
+- RealSense RGB camera extrinsic calibration with a ChArUco board
+- Calibrated main-camera pose/intrinsics loading from `configs/camera/main_camera.yaml`
+- Per-attempt randomization of four workspace SphereLight intensities
+- Optional suppression of the default ground-plane SphereLight contribution
 - Repository-relative runtime paths
 
 ---
@@ -78,6 +82,8 @@ Important runtime files and directories:
 │   └── table/
 │       └── table_asset.usd
 ├── configs/
+│   ├── camera/
+│   │   └── main_camera.yaml
 │   └── curobo_piper/
 │       ├── collision_spheres.yml
 │       ├── piper.yml
@@ -89,9 +95,15 @@ Important runtime files and directories:
 │       └── piper_pick_place_demo.mp4
 ├── logs/
 ├── src/
+│   ├── camera/
+│   │   ├── calibration/
+│   │   │   └── realsense_charuco_camera_calibration.py
+│   │   └── verify_main_camera_from_yaml.py
 │   └── sim/
 │       ├── helper.py
-│       └── piper_pick_and_place_testbed_portable.py
+│       ├── piper_pick_and_place_testbed_portable.py
+│       ├── piper_pick_and_place_testbed_calibrated_main_camera.py
+│       └── piper_pick_and_place_testbed_calibrated_main_camera_random_lights.py
 └── README.md
 ```
 
@@ -143,6 +155,100 @@ omni_python piper_pick_and_place_testbed_portable.py \
   --object_xyz 0.4 0.2 0.025 \
   --place_xyz 0.3 -0.2 0.025 \
   --spawn_region_center_xy 0.25 0.25
+```
+
+---
+
+## Camera Calibration
+
+The repository includes a RealSense RGB camera calibration utility based on a ChArUco board. The calibration estimates the camera pose in the Piper/Isaac world frame and saves the result, together with the active RGB intrinsics, to:
+
+```text
+configs/camera/main_camera.yaml
+```
+
+The calibrated simulation scripts use this YAML to place `/World/main_camera` and configure its pinhole intrinsics.
+
+Run the calibration utility from the repository root:
+
+```bash
+omni_python \
+  src/camera/calibration/realsense_charuco_camera_calibration.py
+```
+
+After saving a calibration, verify the resulting camera placement in Isaac Sim:
+
+```bash
+omni_python \
+  src/camera/verify_main_camera_from_yaml.py
+```
+
+To run pick-and-place using the calibrated main camera:
+
+```bash
+omni_python \
+  src/sim/piper_pick_and_place_testbed_calibrated_main_camera.py \
+  --startup_arm_effort 1000 \
+  --startup_settle_steps 60 \
+  --episode_reset_settle_steps 25 \
+  --object_xyz 0.4 0.2 0.025 \
+  --place_xyz 0.3 -0.2 0.025 \
+  --spawn_region_center_xy 0.25 0.25
+```
+
+The camera configuration can also be overridden explicitly:
+
+```bash
+--main_camera_config_path configs/camera/main_camera.yaml
+```
+
+---
+
+## Randomized Scene Lighting
+
+`piper_pick_and_place_testbed_calibrated_main_camera_random_lights.py` extends the calibrated-camera simulation with lighting domain randomization.
+
+Four workspace `SphereLight` sources remain at fixed positions, while their intensities are sampled independently at the beginning of each pick-and-place attempt. The sampled values remain fixed during that attempt and are resampled for the next attempt, including retries.
+
+The default randomized intensity range is:
+
+```text
+50000 - 100000
+```
+
+The default SphereLight created under `/World/defaultGroundPlane` is kept in the stage but its intensity is set to `0`, so it does not dominate the randomized workspace lighting.
+
+Example:
+
+```bash
+omni_python \
+  src/sim/piper_pick_and_place_testbed_calibrated_main_camera_random_lights.py \
+  --startup_arm_effort 1000 \
+  --startup_settle_steps 60 \
+  --episode_reset_settle_steps 25 \
+  --object_xyz 0.4 0.2 0.025 \
+  --place_xyz 0.3 -0.2 0.025 \
+  --spawn_region_center_xy 0.25 0.25 \
+  --scene_light_intensity_min 50000 \
+  --scene_light_intensity_max 100000
+```
+
+Useful lighting options:
+
+```text
+--scene_light_intensity_min <value>   Minimum randomized intensity
+--scene_light_intensity_max <value>   Maximum randomized intensity
+--scene_light_random_seed <seed>      Independent reproducible lighting seed
+--disable_scene_light_randomization   Use one fixed intensity for all four lights
+--scene_light_intensity <value>       Fixed intensity used when randomization is disabled
+--disable_scene_lights                Do not create the four workspace lights
+--keep_default_light                  Leave the default ground-plane light unchanged
+```
+
+During execution, the sampled values are printed for each attempt, for example:
+
+```text
+[LIGHT] attempt #3 (success repeat) | mode=random | L1=74231.5, L2=91304.2, L3=52688.7, L4=84112.9
 ```
 
 ---

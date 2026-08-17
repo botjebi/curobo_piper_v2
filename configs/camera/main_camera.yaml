@@ -1,0 +1,226 @@
+schema: piper_realsense_charuco_camera_calibration
+schema_version: 1
+timestamp_utc: '2026-08-17T10:34:15.163570+00:00'
+transform_convention:
+  rule: p_A = T_A_B @ p_B
+  vectors: column
+  translation_unit: meter
+  quaternion_order: wxyz
+camera:
+  device_name: RealSense D435I
+  serial_number: '243322070742'
+  firmware_version: 5.17.0.10
+  stream: color
+  format: bgr8
+  width: 1280
+  height: 720
+  fps: 15
+intrinsics:
+  K:
+  - - 910.3890991210938
+    - 0.0
+    - 626.2061767578125
+  - - 0.0
+    - 909.9880981445312
+    - 380.8543701171875
+  - - 0.0
+    - 0.0
+    - 1.0
+  fx: 910.3890991210938
+  fy: 909.9880981445312
+  cx: 626.2061767578125
+  cy: 380.8543701171875
+  distortion_model_realsense: inverse_brown_conrady
+  distortion_coefficients_realsense:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  distortion_coefficients_opencv_k1_k2_p1_p2_k3:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  pnp_distortion_handling: realsense_deproject_to_pinhole
+  fov_x_deg_from_pinhole_intrinsics: 70.21413869867396
+  fov_y_deg_from_pinhole_intrinsics: 43.16845116218083
+charuco:
+  squares_x: 11
+  squares_y: 8
+  square_length_m: 0.015
+  marker_length_m: 0.012
+  aruco_dictionary: DICT_5X5_1000
+  legacy_pattern: true
+  geometric_center_in_native_board_m:
+  - 0.08249999629333615
+  - 0.05999999772757292
+  - 0.0
+  native_to_physical_center_rotation: Rx(pi) = diag(1,-1,-1)
+  native_axis_mapping:
+    B_plus_X: M_plus_X
+    B_plus_Y: M_minus_Y
+    B_plus_Z: M_minus_Z
+board_pose_world:
+  geometric_center_xyz_m:
+  - 0.345
+  - 0.0
+  - 0.0
+  x_axis_world:
+  - 1.0
+  - 0.0
+  - 0.0
+  y_axis_world:
+  - 0.0
+  - 1.0
+  - 0.0
+  z_axis_world:
+  - 0.0
+  - 0.0
+  - 1.0
+  T_world_board_center:
+  - - 1.0
+    - 0.0
+    - 0.0
+    - 0.345
+  - - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  T_center_board_native:
+  - - 1.0
+    - 0.0
+    - 0.0
+    - -0.08249999629333615
+  - - 0.0
+    - -1.0
+    - 0.0
+    - 0.05999999772757292
+  - - 0.0
+    - 0.0
+    - -1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  T_world_board_native:
+  - - 1.0
+    - 0.0
+    - 0.0
+    - 0.2625000037066638
+  - - 0.0
+    - -1.0
+    - 0.0
+    - 0.05999999772757292
+  - - 0.0
+    - 0.0
+    - -1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+calibration:
+  T_camera_optical_board_native:
+  - - 0.009799105114268868
+    - -0.9998255871302105
+    - 0.015898831991366352
+    - 0.05724661473527275
+  - - 0.923695885536426
+    - 0.015140539324162428
+    - 0.38282721312891477
+    - 0.046802722490737914
+  - - -0.3830011600270129
+    - 0.01093432159320723
+    - 0.9236831448225411
+    - 0.7499251854165229
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  T_world_color_optical_cv:
+  - - 0.009799105114268868
+    - 0.923695885536426
+    - -0.3830011600270129
+    - 0.50592977186284
+  - - 0.9998255871302105
+    - -0.015140539324162428
+    - -0.01093432159320723
+    - 0.01167190914720058
+  - - -0.015898831991366352
+    - -0.38282721312891477
+    - -0.9236831448225411
+    - 0.7115207637748868
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  T_world_isaac_camera_usd:
+  - - 0.009799105114268868
+    - -0.923695885536426
+    - 0.3830011600270129
+    - 0.50592977186284
+  - - 0.9998255871302105
+    - 0.015140539324162428
+    - 0.01093432159320723
+    - 0.01167190914720058
+  - - -0.015898831991366352
+    - 0.38282721312891477
+    - 0.9236831448225411
+    - 0.7115207637748868
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+  color_optical_position_world_m:
+  - 0.50592977186284
+  - 0.01167190914720058
+  - 0.7115207637748868
+  color_optical_quaternion_world_wxyz:
+  - 0.13320606308232152
+  - -0.697965398365308
+  - -0.6889745097578192
+  - 0.142879572881634
+  isaac_camera_position_world_m:
+  - 0.50592977186284
+  - 0.01167190914720058
+  - 0.7115207637748868
+  isaac_camera_quaternion_world_wxyz:
+  - 0.6979653983653081
+  - 0.13320606308232155
+  - 0.14287957288163403
+  - 0.6889745097578193
+quality:
+  charuco_corner_count: 70
+  charuco_corner_total: 70
+  charuco_corner_detection_ratio: 1.0
+  aruco_marker_count: 44
+  aruco_marker_total: 44
+  pnp_inlier_count: 70
+  pnp_inlier_ratio_of_detected_corners: 1.0
+  reprojection_rmse_px: 0.3085949577390741
+  max_reprojection_rmse_px: 2.5
+  camera_height_world_m: 0.7115207637748868
+  optical_forward_dot_to_board: 0.985467352513632
+  accepted: true
+isaac_usage:
+  pose_transform: calibration.T_world_isaac_camera_usd
+  position: calibration.isaac_camera_position_world_m
+  quaternion_wxyz: calibration.isaac_camera_quaternion_world_wxyz
+  note: 'These fields represent the USD camera local-axis convention: +X right, +Y
+    up, -Z forward.'
+files:
+  canonical_config: /home/lab/icros_journal/configs/camera/main_camera.yaml
+  timestamped_log_yaml: /home/lab/icros_journal/logs/camera_calibration/main_camera_charuco_20260817_193415.yaml
+  raw_rgb: /home/lab/icros_journal/logs/camera_calibration/main_camera_charuco_20260817_193415_raw.png
+  annotated_preview: /home/lab/icros_journal/logs/camera_calibration/main_camera_charuco_20260817_193415_preview.png

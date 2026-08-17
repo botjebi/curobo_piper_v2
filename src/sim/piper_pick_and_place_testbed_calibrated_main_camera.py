@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import yaml
 
 # ---------------------------------------------------------------------
 # Project-local paths
@@ -26,6 +27,8 @@ PROJECT_ROOT = _THIS_DIR.parents[1]
 
 ASSETS_DIR = PROJECT_ROOT / "assets"
 CUROBO_CONFIG_DIR = PROJECT_ROOT / "configs" / "curobo_piper"
+CAMERA_CONFIG_DIR = PROJECT_ROOT / "configs" / "camera"
+MAIN_CAMERA_CONFIG_PATH = CAMERA_CONFIG_DIR / "main_camera.yaml"
 LOGS_DIR = PROJECT_ROOT / "logs"
 
 PIPER_MESH_DIR = ASSETS_DIR / "robot" / "piper_description" / "meshes"
@@ -675,6 +678,25 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--main_camera_config_path",
+    type=str,
+    default=str(MAIN_CAMERA_CONFIG_PATH),
+    help=(
+        "Calibrated main-camera YAML produced by the RealSense ChArUco calibration tool. "
+        "By default this is <PROJECT_ROOT>/configs/camera/main_camera.yaml."
+    ),
+)
+parser.add_argument(
+    "--disable_calibrated_main_camera",
+    action="store_true",
+    default=False,
+    help=(
+        "Ignore --main_camera_config_path and use the legacy --main_camera_xyz, "
+        "--main_camera_rpy_deg, and --main_camera_focal_length values instead."
+    ),
+)
+
+parser.add_argument(
     "--main_camera_xyz",
     nargs=3,
     metavar=("x", "y", "z"),
@@ -735,6 +757,14 @@ from omni.isaac.core.robots import Robot
 from omni.isaac.core.objects import cuboid, sphere
 from omni.isaac.core.prims import XFormPrim
 from omni.isaac.core.utils.types import ArticulationAction
+
+try:
+    from isaacsim.sensors.camera import Camera as IsaacCamera
+except ImportError:
+    try:
+        from omni.isaac.sensor import Camera as IsaacCamera
+    except ImportError:
+        IsaacCamera = None
 
 from curobo.geom.sdf.world import CollisionCheckerType
 from curobo.geom.types import WorldConfig
@@ -1583,6 +1613,100 @@ def _set_translate_orient_exact(stage, prim_path, xyz, rpy_deg):
     return True
 
 
+
+def _rotation_matrix_to_quat_wxyz(rotation):
+    """Convert a proper 3x3 rotation matrix to a normalized [w, x, y, z] quaternion."""
+    R = np.asarray(rotation, dtype=np.float64).reshape(3, 3)
+
+    # Project small numerical drift back to SO(3).
+    u, _s, vh = np.linalg.svd(R)
+    R = u @ vh
+    if np.linalg.det(R) < 0.0:
+        u[:, -1] *= -1.0
+        R = u @ vh
+
+    trace = float(np.trace(R))
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        w = 0.25 * s
+        x = (R[2, 1] - R[1, 2]) / s
+        y = (R[0, 2] - R[2, 0]) / s
+        z = (R[1, 0] - R[0, 1]) / s
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2.0
+        w = (R[2, 1] - R[1, 2]) / s
+        x = 0.25 * s
+        y = (R[0, 1] + R[1, 0]) / s
+        z = (R[0, 2] + R[2, 0]) / s
+    elif R[1, 1] > R[2, 2]:
+        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2.0
+        w = (R[0, 2] - R[2, 0]) / s
+        x = (R[0, 1] + R[1, 0]) / s
+        y = 0.25 * s
+        z = (R[1, 2] + R[2, 1]) / s
+    else:
+        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2.0
+        w = (R[1, 0] - R[0, 1]) / s
+        x = (R[0, 2] + R[2, 0]) / s
+        y = (R[1, 2] + R[2, 1]) / s
+        z = 0.25 * s
+
+    q = np.array([w, x, y, z], dtype=np.float64)
+    norm = float(np.linalg.norm(q))
+    if not np.isfinite(norm) or norm < 1e-12:
+        raise RuntimeError(f"Invalid quaternion derived from rotation:\n{R}")
+    q /= norm
+    if q[0] < 0.0:
+        q = -q
+    return q
+
+
+def _rotation_matrix_is_valid(rotation, atol=1e-4):
+    R = np.asarray(rotation, dtype=np.float64).reshape(3, 3)
+    return bool(
+        np.all(np.isfinite(R))
+        and np.allclose(R.T @ R, np.eye(3), atol=atol)
+        and np.isclose(np.linalg.det(R), 1.0, atol=atol)
+    )
+
+
+def _set_translate_quat_exact(stage, prim_path, xyz, quat_wxyz):
+    """Set a USD prim transform with one Translate op + one Orient quaternion op."""
+    prim = stage.GetPrimAtPath(str(prim_path))
+    if not prim.IsValid():
+        return False
+
+    xyz = np.asarray(xyz, dtype=np.float64).reshape(3)
+    q = np.asarray(quat_wxyz, dtype=np.float64).reshape(4)
+    q_norm = float(np.linalg.norm(q))
+    if not np.isfinite(q_norm) or q_norm < 1e-12:
+        raise RuntimeError(f"Invalid quaternion for {prim_path}: {q}")
+    q = q / q_norm
+
+    xformable = UsdGeom.Xformable(prim)
+    try:
+        xformable.ClearXformOpOrder()
+    except Exception:
+        pass
+
+    translate_op = xformable.AddTranslateOp()
+    orient_op = xformable.AddOrientOp()
+
+    translate_op.Set(Gf.Vec3d(float(xyz[0]), float(xyz[1]), float(xyz[2])))
+    orient_op.Set(
+        Gf.Quatf(
+            float(q[0]),
+            Gf.Vec3f(float(q[1]), float(q[2]), float(q[3])),
+        )
+    )
+
+    try:
+        xformable.SetXformOpOrder([translate_op, orient_op])
+    except Exception:
+        pass
+    return True
+
+
 def _normalize_prim_path(path):
     path = str(path).strip()
     if not path.startswith('/'):
@@ -1976,14 +2100,246 @@ def create_camera_prim(stage, prim_path, xyz, rpy_deg, focal_length=24.0, clippi
     return XFormPrim(prim_path)
 
 
-def create_main_camera(stage):
-    return create_camera_prim(
-        stage,
-        '/World/main_camera',
-        args.main_camera_xyz,
-        args.main_camera_rpy_deg,
-        focal_length=args.main_camera_focal_length,
+def _load_main_camera_calibration_yaml(config_path):
+    config_path = Path(config_path).expanduser().resolve()
+    if not config_path.is_file():
+        raise FileNotFoundError(
+            f"Calibrated main-camera YAML not found: {config_path}\n"
+            "Run the RealSense ChArUco calibration first, or pass "
+            "--disable_calibrated_main_camera to use the legacy fixed camera."
+        )
+
+    with config_path.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    if not isinstance(cfg, dict):
+        raise RuntimeError(f"Main-camera YAML root is not a mapping: {config_path}")
+
+    try:
+        camera_cfg = cfg["camera"]
+        intr_cfg = cfg["intrinsics"]
+        calib_cfg = cfg["calibration"]
+
+        T_world_camera = np.asarray(
+            calib_cfg["T_world_isaac_camera_usd"],
+            dtype=np.float64,
+        ).reshape(4, 4)
+
+        width = int(camera_cfg["width"])
+        height = int(camera_cfg["height"])
+        fps = int(camera_cfg["fps"])
+
+        fx = float(intr_cfg["fx"])
+        fy = float(intr_cfg["fy"])
+        cx = float(intr_cfg["cx"])
+        cy = float(intr_cfg["cy"])
+    except Exception as exc:
+        raise RuntimeError(
+            f"Main-camera YAML is missing required calibration fields: {config_path}"
+        ) from exc
+
+    if width <= 0 or height <= 0 or fps <= 0:
+        raise RuntimeError(
+            f"Invalid camera width/height/fps in {config_path}: "
+            f"{width}x{height}@{fps}"
+        )
+    if min(fx, fy) <= 0.0:
+        raise RuntimeError(f"Invalid fx/fy in {config_path}: fx={fx}, fy={fy}")
+    if not np.allclose(
+        T_world_camera[3],
+        np.array([0.0, 0.0, 0.0, 1.0]),
+        atol=1e-8,
+    ):
+        raise RuntimeError(
+            f"Invalid homogeneous transform bottom row in {config_path}: "
+            f"{T_world_camera[3]}"
+        )
+    if not _rotation_matrix_is_valid(T_world_camera[:3, :3]):
+        raise RuntimeError(
+            f"Invalid T_world_isaac_camera_usd rotation in {config_path}"
+        )
+
+    position = T_world_camera[:3, 3].copy()
+    quat_wxyz = _rotation_matrix_to_quat_wxyz(T_world_camera[:3, :3])
+
+    distortion_model = str(
+        intr_cfg.get("distortion_model_realsense", "unknown")
     )
+    pnp_distortion_handling = str(
+        intr_cfg.get("pnp_distortion_handling", "unknown")
+    )
+
+    opencv_coeffs_raw = np.asarray(
+        intr_cfg.get(
+            "distortion_coefficients_opencv_k1_k2_p1_p2_k3",
+            [0.0] * 5,
+        ),
+        dtype=np.float64,
+    ).reshape(-1)
+
+    pinhole_coeffs = np.zeros(12, dtype=np.float64)
+    pinhole_coeffs[: min(12, len(opencv_coeffs_raw))] = opencv_coeffs_raw[:12]
+
+    # The calibrated RealSense profile currently reports inverse Brown-Conrady.
+    # Those coefficients are NOT forward OpenCV Brown coefficients. Keep the
+    # simulation camera as an ideal pinhole camera using the calibrated K.
+    use_ideal_pinhole = (
+        distortion_model == "inverse_brown_conrady"
+        or pnp_distortion_handling == "realsense_deproject_to_pinhole"
+    )
+    if use_ideal_pinhole:
+        pinhole_coeffs[:] = 0.0
+
+    return {
+        "path": config_path,
+        "raw": cfg,
+        "T_world_isaac_camera_usd": T_world_camera,
+        "position": position,
+        "quat_wxyz": quat_wxyz,
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "fx": fx,
+        "fy": fy,
+        "cx": cx,
+        "cy": cy,
+        "distortion_model": distortion_model,
+        "pnp_distortion_handling": pnp_distortion_handling,
+        "pinhole_coeffs": pinhole_coeffs,
+        "use_ideal_pinhole": use_ideal_pinhole,
+    }
+
+
+def _configure_calibrated_camera_sensor(camera_sensor, camera_cfg):
+    """
+    Configure the Isaac camera wrapper from the calibrated OpenCV K matrix.
+
+    The pose is already authored as USD axes on the Camera prim. The sensor
+    wrapper is used here to attach the exact resolution and OpenCV pinhole
+    intrinsics that will later be useful for RGB dataset collection.
+    """
+    if camera_sensor is None:
+        return False
+
+    camera_sensor.initialize()
+
+    # Re-apply the authoritative calibration pose after initialize() so no
+    # wrapper initialization path can silently replace the USD transform.
+    camera_sensor.set_world_pose(
+        position=np.asarray(camera_cfg["position"], dtype=np.float64),
+        orientation=np.asarray(camera_cfg["quat_wxyz"], dtype=np.float64),
+        camera_axes="usd",
+    )
+    camera_sensor.set_resolution(
+        (int(camera_cfg["width"]), int(camera_cfg["height"]))
+    )
+    camera_sensor.set_clipping_range(0.01, 1000.0)
+
+    camera_sensor.set_opencv_pinhole_properties(
+        cx=float(camera_cfg["cx"]),
+        cy=float(camera_cfg["cy"]),
+        fx=float(camera_cfg["fx"]),
+        fy=float(camera_cfg["fy"]),
+        pinhole=np.asarray(
+            camera_cfg["pinhole_coeffs"],
+            dtype=np.float64,
+        ).tolist(),
+    )
+    return True
+
+
+def create_main_camera(stage):
+    if args.disable_calibrated_main_camera:
+        carb.log_warn(
+            "Calibrated main camera disabled; using legacy fixed "
+            f"xyz={args.main_camera_xyz}, rpy_deg={args.main_camera_rpy_deg}, "
+            f"focal_length={args.main_camera_focal_length}."
+        )
+        return create_camera_prim(
+            stage,
+            '/World/main_camera',
+            args.main_camera_xyz,
+            args.main_camera_rpy_deg,
+            focal_length=args.main_camera_focal_length,
+        )
+
+    camera_cfg = _load_main_camera_calibration_yaml(
+        args.main_camera_config_path
+    )
+
+    camera_prim_path = "/World/main_camera"
+    UsdGeom.Camera.Define(stage, camera_prim_path)
+    _set_translate_quat_exact(
+        stage,
+        camera_prim_path,
+        camera_cfg["position"],
+        camera_cfg["quat_wxyz"],
+    )
+
+    camera_sensor = None
+    if IsaacCamera is not None:
+        try:
+            camera_sensor = IsaacCamera(
+                prim_path=camera_prim_path,
+                name="main_camera_calibrated",
+                frequency=int(camera_cfg["fps"]),
+                resolution=(
+                    int(camera_cfg["width"]),
+                    int(camera_cfg["height"]),
+                ),
+            )
+            _configure_calibrated_camera_sensor(camera_sensor, camera_cfg)
+        except Exception as exc:
+            # Pose remains correctly authored on the USD Camera even if the
+            # render/sensor wrapper cannot initialize at this point.
+            carb.log_warn(
+                "Calibrated main-camera USD pose was loaded, but Isaac Camera "
+                f"sensor/intrinsics initialization failed: {exc}"
+            )
+            camera_sensor = None
+    else:
+        carb.log_warn(
+            "Isaac Camera wrapper is unavailable. The calibrated USD pose is "
+            "still loaded, but OpenCV K/resolution was not attached as a sensor."
+        )
+
+    pos = camera_cfg["position"]
+    quat = camera_cfg["quat_wxyz"]
+    forward = -camera_cfg["T_world_isaac_camera_usd"][:3, 2]
+
+    print(
+        "[MAIN_CAMERA] Loaded calibrated camera from "
+        f"{camera_cfg['path']}"
+    )
+    print(
+        "[MAIN_CAMERA] USD position [m] = "
+        f"[{pos[0]:.6f}, {pos[1]:.6f}, {pos[2]:.6f}]"
+    )
+    print(
+        "[MAIN_CAMERA] USD quaternion wxyz = "
+        f"[{quat[0]:.7f}, {quat[1]:.7f}, {quat[2]:.7f}, {quat[3]:.7f}]"
+    )
+    print(
+        "[MAIN_CAMERA] USD forward (-Z) = "
+        f"[{forward[0]:.6f}, {forward[1]:.6f}, {forward[2]:.6f}]"
+    )
+    print(
+        "[MAIN_CAMERA] Intrinsics = "
+        f"{camera_cfg['width']}x{camera_cfg['height']}@{camera_cfg['fps']} "
+        f"fx={camera_cfg['fx']:.3f}, fy={camera_cfg['fy']:.3f}, "
+        f"cx={camera_cfg['cx']:.3f}, cy={camera_cfg['cy']:.3f}"
+    )
+    print(
+        "[MAIN_CAMERA] RealSense distortion = "
+        f"{camera_cfg['distortion_model']} | "
+        f"simulation ideal_pinhole={camera_cfg['use_ideal_pinhole']}"
+    )
+
+    # Return the sensor wrapper when available so future dataset recording code
+    # can use it directly. Otherwise preserve the old XFormPrim-style return.
+    if camera_sensor is not None:
+        return camera_sensor
+    return XFormPrim(camera_prim_path)
 
 
 def create_wrist_camera(stage, robot_prim_path, ee_link_name):
